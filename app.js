@@ -275,7 +275,7 @@ function buildDetallePorNivel(c, n, bonos, vend, ventasDia) {
   const tarjetas = bonos.slice(0, n).map((bono, i) => {
     const vMes = ventasDia[i] * DIAS_MES;
     const ventasTotalNivel = vend[i] * vMes;
-    const totalNivel = bono * ventasTotalNivel;
+    const totalNivel = c.margenTuyo * ventasTotalNivel;
     return `
     <div class="sim-nivel-card">
       <div class="sim-nivel-card-hdr" style="border-left:3px solid ${nivelColors[i]}">
@@ -304,7 +304,7 @@ function buildDetallePorNivel(c, n, bonos, vend, ventasDia) {
         </div>
         <div class="sim-nivel-stat sim-nivel-stat-total">
           <span class="sim-nivel-stat-label">Total mensual nivel</span>
-          <span class="sim-nivel-stat-val" style="color:var(--green)">${bono > 0 ? bs(totalNivel) : "Sin bono — ventas contabilizan pero no generan pago"}</span>
+          <span class="sim-nivel-stat-val" style="color:var(--green)">${bs(totalNivel)}</span>
         </div>
       </div>
     </div>`;
@@ -317,7 +317,7 @@ function buildDetallePorNivel(c, n, bonos, vend, ventasDia) {
         <div>
           <div class="sim-bloque-title">Detalle por nivel</div>
           <div class="sim-bloque-desc">
-            Bonos fijos en Bs por unidad — salen de tu margen de <strong>${bs(c.margenTuyo)}</strong> (precioRed − precioSocio).
+            Bonos fijos en Bs por unidad: salen de tu margen de <strong>${bs(c.margenTuyo)}</strong> (precioRed − precioSocio).
           </div>
         </div>
       </div>
@@ -412,12 +412,12 @@ function buildSostenibilidad(c, n) {
 
 function buildProyeccionMensual(c, n, bonos, vend, ventasDia) {
   const totalMes = bonos.reduce((sum, bono, i) =>
-    sum + bono * vend[i] * ventasDia[i] * DIAS_MES, 0);
+    sum + c.margenTuyo * vend[i] * ventasDia[i] * DIAS_MES, 0);
 
   const filas = bonos.map((bono, i) => {
     const vMes = ventasDia[i] * DIAS_MES;
     const ventasTotalNivel = vend[i] * vMes;
-    const totalNivel = bono * ventasTotalNivel;
+    const totalNivel = c.margenTuyo * ventasTotalNivel;
     return `
     <tr>
       <td>
@@ -428,7 +428,7 @@ function buildProyeccionMensual(c, n, bonos, vend, ventasDia) {
       <td style="text-align:center">${ventasDia[i]}</td>
       <td style="text-align:center;color:var(--text2)">${vMes}</td>
       <td>${bs(bono)}/unid.</td>
-      <td style="color:var(--green);font-weight:600">${bono > 0 ? bs(totalNivel) : "—"}</td>
+      <td style="color:var(--green);font-weight:600">${bs(totalNivel)}</td>
     </tr>`;
   }).join("");
 
@@ -438,13 +438,13 @@ function buildProyeccionMensual(c, n, bonos, vend, ventasDia) {
         <span class="sim-bloque-num">④</span>
         <div>
           <div class="sim-bloque-title">Proyección mensual consolidada</div>
-          <div class="sim-bloque-desc">Bonos de red por mes. Ventas/mes = ventas/día × ${DIAS_MES} días.</div>
+          <div class="sim-bloque-desc">Ingresos por ventas de red por mes. Ventas/mes = ventas/día × ${DIAS_MES} días.</div>
         </div>
       </div>
       <div class="table-wrap" style="margin:12px">
         <table>
           <thead>
-            <tr><th>Nivel</th><th>Dist.</th><th>Ventas/día</th><th>Ventas/mes</th><th>Bono/venta</th><th>Total mes</th></tr>
+            <tr><th>Nivel</th><th>Dist.</th><th>Ventas/día</th><th>Ventas/mes</th><th>Bono pagado</th><th>Ingreso mes</th></tr>
           </thead>
           <tbody>
             ${filas}
@@ -458,7 +458,7 @@ function buildProyeccionMensual(c, n, bonos, vend, ventasDia) {
         </table>
       </div>
       <div class="notice blue" style="margin:0 12px 12px">
-        <strong>${bs(totalMes)}</strong> bonos de red por mes.
+        <strong>${bs(totalMes)}</strong> ingresos por ventas de red por mes (antes de descontar bonos pagados).
         Cada unidad que vendas tú mismo genera <strong>${bs(c.utilidadTuya)}</strong> adicional de utilidad neta.
         Cada distribuidor gana <strong>${bs(c.margenDistrib)}</strong> al vender al público.
       </div>
