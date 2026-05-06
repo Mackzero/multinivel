@@ -20,10 +20,12 @@ const data = [
 let cur       = 0;
 let activeTab = "analisis";
 
-// ─── HELPERS ─────────────────────────────────────────────────────────────────
-const bs  = n => "Bs " + (+n).toFixed(2);
-const pct = (v,b) => b===0 ? "0.0" : (v/b*100).toFixed(1);
-const r2  = n => +n.toFixed(2);
+// HELPERS
+const bs   = n => "Bs " + Math.round(+n);
+const bsEx = n => "Bs " + (+n).toFixed(2);   // exacto para precio socio/público
+const pct  = (v,b) => b===0 ? "0.0" : (v/b*100).toFixed(1);
+const r2   = n => +n.toFixed(2);
+const ri   = n => Math.round(n);              // redondeo a entero
 const DIAS_MES = 30;
 
 function calc(p) {
@@ -37,15 +39,16 @@ function calc(p) {
   return { sub, costoFab, retorno, base1, error, precioMin, margen };
 }
 
-// ─── ESTADO DEL SIMULADOR ────────────────────────────────────────────────────
+// ESTADO DEL SIMULADOR
 const simState = {
-  numNiveles: 3,
-  pcts:       [15, 10, 5, 3, 2],
-  vendedores: [3, 9, 27, 81, 243],
-  ventasDia:  [1, 1, 1, 1, 1],
+  numNiveles:   3,
+  pcts:         [30, 25, 20, 15, 10],
+  vendedores:   [10, 10, 10, 10, 10],
+  ventasDia:    [1, 1, 1, 1, 1],
+  misVentas:    0,   // unidades que yo vendí directamente este mes
 };
 
-// ─── TABS (productos) ─────────────────────────────────────────────────────────
+// TABS (productos)
 function renderTabs() {
   document.getElementById("prod-tabs").innerHTML = data.map((p,i) =>
     `<button class="prod-tab ${i===cur?"active":""}" onclick="sel(${i})">${p.nombre}</button>`
@@ -53,7 +56,7 @@ function renderTabs() {
 }
 function sel(i) { cur=i; renderTabs(); renderFields(); renderRight(); }
 
-// ─── LEFT FIELDS ─────────────────────────────────────────────────────────────
+// LEFT FIELDS
 function renderFields() {
   const p = data[cur];
   const nf = (key, label, unit="Bs", hint="") => `
@@ -97,7 +100,7 @@ function renderFields() {
   `;
 }
 
-// ─── LIVE UPDATE ─────────────────────────────────────────────────────────────
+// LIVE UPDATE
 function live() {
   const p = data[cur];
   ["materia","capsulas","envases","etiqueta","transporte","comision","iva","pub","demanda","retPct","errPct"].forEach(k => {
@@ -107,14 +110,14 @@ function live() {
   renderRight();
 }
 
-// ─── SECCIÓN TABS ────────────────────────────────────────────────────────────
+// SECCIÓN TABS
 function switchTab(tab) {
   activeTab = tab;
   document.querySelectorAll(".sec-tab").forEach(el => el.classList.toggle("active", el.dataset.tab === tab));
   document.querySelectorAll(".tab-content").forEach(el => el.classList.toggle("active", el.dataset.tab === tab));
 }
 
-// ─── LEER ESTADO SIMULADOR ───────────────────────────────────────────────────
+// LEER ESTADO SIMULADOR
 function leerSimState() {
   const n = parseInt(document.getElementById("sim-niveles")?.value || simState.numNiveles);
   simState.numNiveles = n;
@@ -124,8 +127,10 @@ function leerSimState() {
     const dEl = document.getElementById(`sim-vdia-${i}`);
     if (pEl) simState.pcts[i]       = parseFloat(pEl.value) || 0;
     if (vEl) simState.vendedores[i] = parseInt(vEl.value)   || 0;
-    if (dEl) simState.ventasDia[i]  = parseFloat(dEl.value) || 0;
+    if (dEl) simState.ventasDia[i]  = parseInt(dEl.value)   || 0;  // ← entero
   }
+  const mvEl = document.getElementById("mis-ventas-input");
+  if (mvEl) simState.misVentas = parseInt(mvEl.value) || 0;
 }
 
 function recalcSim() {
@@ -133,13 +138,16 @@ function recalcSim() {
   const c = calc(data[cur]);
   const zona = document.getElementById("sim-resultados");
   if (zona) zona.innerHTML = buildSimResultados(c);
+  // actualizar resumen "mis ventas directas"
+  const mvZona = document.getElementById("mis-ventas-resumen");
+  if (mvZona) mvZona.innerHTML = buildMisVentasResumen(c);
   for (let i = 0; i < 5; i++) {
     const row = document.getElementById(`sim-row-${i}`);
     if (row) row.style.display = (i < simState.numNiveles) ? "" : "none";
   }
 }
 
-// ─── CONSTANTES DE NIVELES ───────────────────────────────────────────────────
+// CONSTANTES DE NIVELES
 const nivelColors = ["#d97706","#1d4ed8","#059669","#7c3aed","#0d9488"];
 const nivelNames  = ["Directo","Indirecto","Profundo","Extendido","Red amplia"];
 const nivelDescs  = [
@@ -150,11 +158,61 @@ const nivelDescs  = [
   "Máxima profundidad. Alto volumen necesario."
 ];
 
-// ─────────────────────────────────────────────────────────────────────────────
-// BLOQUES DE RESULTADOS (pestaña Planes)
-// ─────────────────────────────────────────────────────────────────────────────
+// MIS VENTAS DIRECTAS
+function buildMisVentasResumen(c) {
+  const mv       = simState.misVentas;
+  const ingDir   = ri(c.margen * mv);
+  // calcular ingreso red con estado actual
+  const n        = simState.numNiveles;
+  const pcts     = simState.pcts.slice(0, n);
+  const vend     = simState.vendedores.slice(0, n);
+  const ventDia  = simState.ventasDia.slice(0, n);
+  const bonos    = pcts.map(p => ri(c.margen * p / 100));
+  const ingRed   = bonos.reduce((sum, b, i) => sum + b * vend[i] * (ventDia[i] * DIAS_MES), 0);
+  const ingRedRi = ri(ingRed);
+  const total    = ingDir + ingRedRi;
 
-// ── BLOQUE ①: Flujo de red ───────────────────────────────────────────────────
+  if (mv === 0) {
+    return `<div class="notice amber" style="margin-top:8px">Ingresa cuántas unidades vendiste tú directamente este mes para ver el total combinado.</div>`;
+  }
+
+  return `
+    <div class="mv-resumen">
+      <div class="mv-row mv-row-dir">
+        <div class="mv-row-label">
+          <span class="mv-icon">🛒</span>
+          <div>
+            <div class="mv-row-title">Mis ventas directas</div>
+            <div class="mv-row-sub">${mv} unid. × ${bs(c.margen)} margen/unid.</div>
+          </div>
+        </div>
+        <div class="mv-row-val green">${bs(ingDir)}</div>
+      </div>
+      <div class="mv-row mv-row-red">
+        <div class="mv-row-label">
+          <span class="mv-icon">🌐</span>
+          <div>
+            <div class="mv-row-title">Ingreso pasivo de red</div>
+            <div class="mv-row-sub">${n} niveles · ${vend.reduce((a,b)=>a+b,0)} distribuidores</div>
+          </div>
+        </div>
+        <div class="mv-row-val amber">${bs(ingRedRi)}</div>
+      </div>
+      <div class="mv-row mv-row-total">
+        <div class="mv-row-label">
+          <span class="mv-icon">💰</span>
+          <div>
+            <div class="mv-row-title" style="font-size:14px;font-weight:700">Total del mes</div>
+            <div class="mv-row-sub">directo + red</div>
+          </div>
+        </div>
+        <div class="mv-row-val total">${bs(total)}</div>
+      </div>
+    </div>`;
+}
+
+// BLOQUES DE RESULTADOS (pestaña Planes)
+// BLOQUE ①: Flujo de red
 function buildFlujoRed(n, pcts, bonoPorVenta) {
   const nodos = ["Tú", ...Array.from({length:n}, (_,i) => `N${i+1}`)];
   const cadena = nodos.map((nodo, idx, arr) => `
@@ -181,11 +239,11 @@ function buildFlujoRed(n, pcts, bonoPorVenta) {
     </div>`;
 }
 
-// ── BLOQUE ②: Detalle por nivel ──────────────────────────────────────────────
+// BLOQUE ②: Detalle por nivel
 function buildDetallePorNivel(n, pcts, bonoPorVenta, vend, ventasDia) {
   const tarjetas = bonoPorVenta.map((bono, i) => {
-    const vMes       = r2(ventasDia[i] * DIAS_MES);
-    const totalNivel = r2(bono * vend[i] * vMes);
+    const vMes       = ventasDia[i] * DIAS_MES;
+    const totalNivel = ri(bono * vend[i] * vMes);
     return `
     <div class="sim-nivel-card">
       <div class="sim-nivel-card-hdr" style="border-left:3px solid ${nivelColors[i]}">
@@ -233,7 +291,7 @@ function buildDetallePorNivel(n, pcts, bonoPorVenta, vend, ventasDia) {
     </div>`;
 }
 
-// ── BLOQUE ③: Resumen del margen ─────────────────────────────────────────────
+// BLOQUE ③: Resumen del margen
 function buildResumenMargen(c, totalBonos1, resta, restaOk, margenUsadoPct) {
   return `
     <div class="sim-bloque">
@@ -265,11 +323,11 @@ function buildResumenMargen(c, totalBonos1, resta, restaOk, margenUsadoPct) {
     </div>`;
 }
 
-// ── BLOQUE ④: Proyección mensual consolidada ─────────────────────────────────
+// BLOQUE ④: Proyección mensual consolidada
 function buildProyeccionMensual(c, bonoPorVenta, vend, ventasDia, totalMes) {
   const filas = bonoPorVenta.map((bono, i) => {
-    const vMes       = r2(ventasDia[i] * DIAS_MES);
-    const totalNivel = r2(bono * vend[i] * vMes);
+    const vMes       = ventasDia[i] * DIAS_MES;
+    const totalNivel = ri(bono * vend[i] * vMes);
     return `
     <tr>
       <td>
@@ -319,12 +377,12 @@ function buildProyeccionMensual(c, bonoPorVenta, vend, ventasDia, totalMes) {
         </table>
       </div>
       <div class="notice blue" style="margin-top:10px">
-        <strong>Bs ${totalMes.toFixed(2)}</strong> es tu ingreso pasivo estimado al mes. A esto se suma lo que vendas tú directamente: cada venta propia te genera adicionalmente <strong>${bs(c.margen)}</strong> de margen.
+        <strong>${bs(totalMes)}</strong> es tu ingreso pasivo estimado al mes. A esto se suma lo que vendas tú directamente: cada venta propia te genera adicionalmente <strong>${bs(c.margen)}</strong> de margen.
       </div>
     </div>`;
 }
 
-// ─── CONSTRUCTOR PRINCIPAL DE RESULTADOS ─────────────────────────────────────
+// CONSTRUCTOR PRINCIPAL DE RESULTADOS
 function buildSimResultados(c) {
   if (c.margen <= 0) return `<div class="notice amber">⚠ Margen negativo. Ajusta el precio público antes de simular.</div>`;
 
@@ -333,14 +391,14 @@ function buildSimResultados(c) {
   const vend      = simState.vendedores.slice(0, n);
   const ventasDia = simState.ventasDia.slice(0, n);
 
-  const bonoPorVenta   = pcts.map(p => r2(c.margen * p / 100));
-  const totalBonos1    = r2(bonoPorVenta.reduce((a,b) => a+b, 0));
-  const resta          = r2(c.margen - totalBonos1);
+  const bonoPorVenta   = pcts.map(p => ri(c.margen * p / 100));
+  const totalBonos1    = bonoPorVenta.reduce((a,b) => a+b, 0);
+  const resta          = ri(c.margen - totalBonos1);
   const restaOk        = resta >= c.margen * 0.45;
   const margenUsadoPct = (totalBonos1 / c.margen * 100).toFixed(1);
 
-  const totalMes = r2(bonoPorVenta.reduce((sum, bono, i) =>
-    sum + bono * vend[i] * r2(ventasDia[i] * DIAS_MES), 0));
+  const totalMes = ri(bonoPorVenta.reduce((sum, bono, i) =>
+    sum + bono * vend[i] * (ventasDia[i] * DIAS_MES), 0));
 
   return [
     buildFlujoRed(n, pcts, bonoPorVenta),
@@ -350,7 +408,168 @@ function buildSimResultados(c) {
   ].join("");
 }
 
-// ─── RENDER PLANES ────────────────────────────────────────────────────────────
+// PESTAÑA BONOS
+// Base de bonos = Margen − Precio socio
+// Tu ganancia fija = Precio socio (recuperas la inversión con cada venta)
+function renderBonos(p, c) {
+  if (c.margen <= 0) {
+    return `<div class="notice amber">⚠ Margen negativo. Ajusta el precio público antes de analizar bonos.</div>`;
+  }
+
+  // BASE DE BONOS = margen - precio socio (entero)
+  const baseBonos = ri(c.margen - c.precioMin);
+
+  if (baseBonos <= 0) {
+    return `<div class="notice amber">⚠ La base de bonos es cero o negativa (margen ≤ precio socio). Ajusta el precio público.</div>`;
+  }
+
+  const porcentajes = [5,10,15,20,25,30,35,40,45,50];
+  const niveles     = [1,2,3,4,5];
+
+  // Tabla principal: bono por unidad y cuánto se consume de la base
+  const filas = porcentajes.map(pctBono => {
+    const bono = ri(baseBonos * pctBono / 100);
+    const celdas = niveles.map(nv => {
+      const totalNv  = bono * nv;
+      const consumo  = totalNv / baseBonos;
+      const cls = consumo > 0.55 ? "bono-red" : consumo > 0.35 ? "bono-amber" : "bono-green";
+      return `<td class="${cls}">${bs(totalNv)}</td>`;
+    }).join("");
+    const consumoPct = (bono * 5 / baseBonos * 100).toFixed(0);
+    return `
+      <tr>
+        <td style="text-align:center;font-weight:600;color:var(--text2)">${pctBono}%</td>
+        <td style="text-align:center;font-family:var(--font-mono);font-weight:600;color:var(--accent)">${bs(bono)}</td>
+        ${celdas}
+        <td style="text-align:center;font-family:var(--font-mono);font-size:11px;color:var(--text3)">${consumoPct}%</td>
+      </tr>`;
+  }).join("");
+
+  // Combinaciones recomendadas sobre la base de bonos
+  const combis = [
+    { label:"Conservador 2N",  pcts:[15,10,0,0,0] },
+    { label:"Estándar 3N",     pcts:[15,10,5,0,0] },
+    { label:"Agresivo 3N",     pcts:[20,12,8,0,0] },
+    { label:"Profundo 4N",     pcts:[15,10,5,3,0] },
+    { label:"Red total 5N",    pcts:[15,10,5,3,2] },
+    { label:"Equilibrado 5N",  pcts:[12,8,5,3,2] },
+  ];
+
+  const filasCombi = combis.map(combo => {
+    const bonosCombo  = combo.pcts.map(pp => ri(baseBonos * pp / 100));
+    const totalCombo  = bonosCombo.reduce((a,b) => a+b, 0);
+    const restBase    = ri(baseBonos - totalCombo);   // lo que queda de la base
+    const tuGanancia  = ri(c.precioMin);              // siempre intacta
+    const ok          = restBase >= 0;
+    const celdas      = combo.pcts.map((pp,i) =>
+      pp > 0
+        ? `<td style="color:${nivelColors[i]};font-weight:600;font-family:var(--font-mono);font-size:12px">${pp}% → ${bs(bonosCombo[i])}</td>`
+        : `<td style="color:var(--text3);font-family:var(--font-mono);font-size:12px">—</td>`
+    ).join("");
+    return `
+      <tr>
+        <td style="font-weight:600">${combo.label}</td>
+        ${celdas}
+        <td style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--amber)">${bs(totalCombo)}</td>
+        <td style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:${ok?"var(--green)":"var(--red)"}">${bs(restBase)}</td>
+        <td style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--purple)">${bs(tuGanancia)}</td>
+        <td><span class="tag ${ok?"tg":"tr2"}">${ok?"OK":"Excede"}</span></td>
+      </tr>`;
+  }).join("");
+
+  return `
+    <!-- ══ A: Producto + lógica ══ -->
+    <div class="planes-bloque">
+      <div class="planes-bloque-title">Producto seleccionado</div>
+      <div style="padding:12px 14px;display:flex;flex-direction:column;gap:9px">
+        <div class="notice teal">
+          <strong>${p.nombre}</strong> — Precio público: <strong>${bsEx(p.pub)}</strong> · Precio socio: <strong>${bsEx(c.precioMin)}</strong> · Margen: <strong>${bs(c.margen)}</strong>
+        </div>
+        <div class="bonos-formula">
+          <div class="bonos-formula-item">
+            <div class="bonos-formula-label">Margen por unidad</div>
+            <div class="bonos-formula-val">${bs(c.margen)}</div>
+            <div class="bonos-formula-sub">precio público − precio socio</div>
+          </div>
+          <div class="bonos-formula-op">−</div>
+          <div class="bonos-formula-item">
+            <div class="bonos-formula-label">Tu ganancia fija</div>
+            <div class="bonos-formula-val purple">${bsEx(c.precioMin)}</div>
+            <div class="bonos-formula-sub">recuperas la inversión</div>
+          </div>
+          <div class="bonos-formula-op">=</div>
+          <div class="bonos-formula-item bonos-formula-result">
+            <div class="bonos-formula-label">Base de bonos</div>
+            <div class="bonos-formula-val green">${bs(baseBonos)}</div>
+            <div class="bonos-formula-sub">disponible para la red</div>
+          </div>
+        </div>
+        <div class="notice blue" style="font-size:12px">
+          Los bonos salen de <strong>${bs(baseBonos)}</strong> (no del margen completo). Tu ganancia de <strong>${bsEx(c.precioMin)}</strong> queda siempre intacta por cada unidad vendida en cualquier nivel.
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ B: Tabla de bonos por % ══ -->
+    <div class="planes-bloque">
+      <div class="planes-bloque-title">Bono por unidad según % de la base (${bs(baseBonos)})</div>
+      <div class="bonos-leyenda">
+        <span class="bono-dot bono-green-dot"></span>Sostenible &nbsp;
+        <span class="bono-dot bono-amber-dot"></span>Ajustado &nbsp;
+        <span class="bono-dot bono-red-dot"></span>Excede la base (si mismo % en todos los niveles)
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="text-align:center">% base</th>
+              <th style="text-align:center">Bono/unidad</th>
+              <th style="text-align:center;color:${nivelColors[0]}">×1 nivel</th>
+              <th style="text-align:center;color:${nivelColors[1]}">×2 niveles</th>
+              <th style="text-align:center;color:${nivelColors[2]}">×3 niveles</th>
+              <th style="text-align:center;color:${nivelColors[3]}">×4 niveles</th>
+              <th style="text-align:center;color:${nivelColors[4]}">×5 niveles</th>
+              <th style="text-align:center">% de base</th>
+            </tr>
+          </thead>
+          <tbody>${filas}</tbody>
+        </table>
+      </div>
+      <div class="notice blue" style="margin-top:8px;font-size:12px">
+        Las columnas ×N muestran el total de bonos pagados por unidad si el mismo % se aplica en todos los niveles hasta ese punto. El color indica si ese total supera la base de <strong>${bs(baseBonos)}</strong>.
+      </div>
+    </div>
+
+    <!-- ══ C: Combinaciones recomendadas ══ -->
+    <div class="planes-bloque">
+      <div class="planes-bloque-title">Combinaciones recomendadas (base de bonos: ${bs(baseBonos)})</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Plan</th>
+              <th style="color:${nivelColors[0]}">N1</th>
+              <th style="color:${nivelColors[1]}">N2</th>
+              <th style="color:${nivelColors[2]}">N3</th>
+              <th style="color:${nivelColors[3]}">N4</th>
+              <th style="color:${nivelColors[4]}">N5</th>
+              <th>Total bonos</th>
+              <th>Resta base</th>
+              <th>Tu ganancia</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>${filasCombi}</tbody>
+        </table>
+      </div>
+      <div class="notice green" style="margin-top:8px;font-size:12px">
+        <strong>Tu ganancia (${bsEx(c.precioMin)})</strong> es fija en todos los planes — es lo que recuperas con cada venta al precio público, sin importar cuánto se reparta en bonos.
+      </div>
+    </div>
+  `;
+}
+
+// RENDER PLANES
 function renderPlanes(p, c) {
   if (c.margen <= 0) {
     return `<div class="notice amber">⚠ El margen actual es negativo (${bs(c.margen)}). Corrije el precio público antes de simular planes.</div>`;
@@ -388,7 +607,7 @@ function renderPlanes(p, c) {
           </div>
           <div class="sim-field-group">
             <span class="sim-field-label">Ventas/día</span>
-            <input class="fi" type="number" step="0.5" min="0"
+            <input class="fi" type="number" step="1" min="1"
               id="sim-vdia-${i}" value="${simState.ventasDia[i]}"
               oninput="recalcSim()" style="width:52px">
           </div>
@@ -402,22 +621,35 @@ function renderPlanes(p, c) {
       <div class="planes-bloque-title">Producto seleccionado</div>
       <div class="notice teal">
         <strong>${p.nombre}</strong> — Margen por unidad: <strong>${bs(c.margen)}</strong> ·
-        Precio socio: <strong>${bs(c.precioMin)}</strong> · Precio público: <strong>${bs(p.pub)}</strong>
+        Precio socio: <strong>${bsEx(c.precioMin)}</strong> · Precio público: <strong>${bsEx(p.pub)}</strong>
       </div>
     </div>
 
-    <!-- ══ BLOQUE B: Cómo funciona ══ -->
+    <!-- ══ BLOQUE B: Mis ventas directas ══ -->
+    <div class="planes-bloque">
+      <div class="planes-bloque-title">Mis ventas directas este mes</div>
+      <div class="mv-input-row">
+        <span class="mv-input-label">Unidades que vendí yo directamente:</span>
+        <input class="fi" type="number" step="1" min="0" id="mis-ventas-input"
+          value="${simState.misVentas}" oninput="recalcSim()" style="width:72px">
+        <span class="fu">unid.</span>
+        <span class="mv-input-hint">× ${bs(c.margen)} = <strong>${bs(ri(c.margen * simState.misVentas))}</strong></span>
+      </div>
+      <div id="mis-ventas-resumen">${buildMisVentasResumen(c)}</div>
+    </div>
+
+    <!-- ══ BLOQUE C: Cómo funciona ══ -->
     <div class="planes-bloque">
       <div class="planes-bloque-title">¿Cómo funciona este plan?</div>
       <div class="planes-explainer">
         <div class="planes-exp-grid">
           <div class="planes-exp-item">
             <div class="planes-exp-icon">①</div>
-            <div><strong>Precio socio</strong> — El distribuidor compra a ${bs(c.precioMin)}. Es su costo de adquisición, no puede vender por debajo de este valor.</div>
+            <div><strong>Precio socio</strong> — El distribuidor compra a ${bsEx(c.precioMin)}. Es su costo de adquisición, no puede vender por debajo de este valor.</div>
           </div>
           <div class="planes-exp-item">
             <div class="planes-exp-icon">②</div>
-            <div><strong>Precio público</strong> — El cliente final paga ${bs(p.pub)}. La diferencia de ${bs(c.margen)} es el margen disponible para repartir.</div>
+            <div><strong>Precio público</strong> — El cliente final paga ${bsEx(p.pub)}. La diferencia de ${bs(c.margen)} es el margen disponible para repartir.</div>
           </div>
           <div class="planes-exp-item">
             <div class="planes-exp-icon">③</div>
@@ -431,7 +663,7 @@ function renderPlanes(p, c) {
       </div>
     </div>
 
-    <!-- ══ BLOQUE C: Configurador ══ -->
+    <!-- ══ BLOQUE D: Configurador ══ -->
     <div class="planes-bloque">
       <div class="planes-bloque-title">Configuración del plan</div>
       <div class="sim-configurador">
@@ -456,7 +688,7 @@ function renderPlanes(p, c) {
       </div>
     </div>
 
-    <!-- ══ BLOQUE D: Resultados ══ -->
+    <!-- ══ BLOQUE E: Resultados ══ -->
     <div class="planes-bloque">
       <div class="planes-bloque-title">Resultados del simulador</div>
       <div id="sim-resultados">
@@ -465,7 +697,7 @@ function renderPlanes(p, c) {
     </div>`;
 }
 
-// ─── RENDER PANEL DERECHO ─────────────────────────────────────────────────────
+// RENDER PANEL DERECHO
 function renderRight() {
   const p = data[cur];
   const c = calc(p);
@@ -473,11 +705,11 @@ function renderRight() {
   const precioSocio = r2(c.precioMin * 1.10);
   const margenSocio = r2(precioSocio - c.precioMin);
   const bonoPcts    = [0.05, 0.10, 0.15];
-  const bonosAbs    = bonoPcts.map(b => r2(c.margen*b));
-  const totalBonos  = r2(bonosAbs.reduce((a,b)=>a+b,0));
-  const quedaPub    = r2(c.margen - totalBonos);
-  const bonosSocio  = bonoPcts.map(b => r2(margenSocio*b));
-  const quedaSocio  = r2(margenSocio - bonosSocio.reduce((a,b)=>a+b,0));
+  const bonosAbs    = bonoPcts.map(b => ri(c.margen*b));
+  const totalBonos  = bonosAbs.reduce((a,b)=>a+b,0);
+  const quedaPub    = ri(c.margen - totalBonos);
+  const bonosSocio  = bonoPcts.map(b => ri(margenSocio*b));
+  const quedaSocio  = ri(margenSocio - bonosSocio.reduce((a,b)=>a+b,0));
   const tagCls      = v => v>=40?"tg":v>=20?"ta":"tr2";
   const viable      = c.margen >= 50;
   const margenOk    = c.margen >= 0;
@@ -497,12 +729,12 @@ function renderRight() {
       </div>
       <div class="pc hl-purple">
         <div class="pc-label">Precio socio</div>
-        <div class="pc-val purple">${bs(c.precioMin)}</div>
+        <div class="pc-val purple">${bsEx(c.precioMin)}</div>
         <div class="pc-sub">costo+ret+error</div>
       </div>
       <div class="pc hl-${margenOk?"green":"amber"}">
         <div class="pc-label">Precio público</div>
-        <div class="pc-val ${margenOk?"green":"red"}">${bs(p.pub)}</div>
+        <div class="pc-val ${margenOk?"green":"red"}">${bsEx(p.pub)}</div>
         <div class="pc-sub">margen: ${bs(c.margen)} (${margenPct.toFixed(1)}%)</div>
       </div>
     </div>
@@ -543,18 +775,18 @@ function renderRight() {
         <span class="build-idx" style="color:var(--purple)">→</span>
         <span class="build-label"><strong>Precio socio</strong></span>
         <span class="build-pct"></span>
-        <span class="build-val purple"><strong>${bs(c.precioMin)}</strong></span>
+        <span class="build-val purple"><strong>${bsEx(c.precioMin)}</strong></span>
       </div>
       <div class="build-row ${margenOk?"build-margin-pos":"build-margin-neg"}">
         <span class="build-idx" style="color:${margenOk?"var(--green)":"var(--red)"}">⑤</span>
         <span class="build-label"><strong>Precio público − Precio socio</strong></span>
-        <span class="build-pct">${bs(p.pub)} − ${bs(c.precioMin)}</span>
+        <span class="build-pct">${bsEx(p.pub)} − ${bsEx(c.precioMin)}</span>
         <span class="build-val ${margenOk?"green":"red"}"><strong>${bs(c.margen)}</strong></span>
       </div>
     </div>
 
-    ${!margenOk?`<div class="notice red" style="margin-bottom:20px">⚠ El precio público <strong>${bs(p.pub)}</strong> es menor al precio socio <strong>${bs(c.precioMin)}</strong>. Pérdida de <strong>${bs(Math.abs(c.margen))}</strong> por unidad.</div>`:""}
-    ${p.demanda>0?`<div class="notice blue" style="margin-bottom:20px">Proyección mensual · <strong>${p.demanda} unid.</strong> → margen bruto: <strong>Bs ${(c.margen*p.demanda).toFixed(2)}</strong> · retorno empresa: <strong>Bs ${(c.retorno*p.demanda).toFixed(2)}</strong></div>`:""}
+    ${!margenOk?`<div class="notice red" style="margin-bottom:20px">⚠ El precio público <strong>${bsEx(p.pub)}</strong> es menor al precio socio <strong>${bsEx(c.precioMin)}</strong>. Pérdida de <strong>${bs(Math.abs(c.margen))}</strong> por unidad.</div>`:""}
+    ${p.demanda>0?`<div class="notice blue" style="margin-bottom:20px">Proyección mensual · <strong>${p.demanda} unid.</strong> → margen bruto: <strong>Bs ${ri(c.margen*p.demanda)}</strong> · retorno empresa: <strong>Bs ${ri(c.retorno*p.demanda)}</strong></div>`:""}
 
     <div class="sec-label">Escenarios de venta</div>
     <div class="table-wrap" style="margin-bottom:12px">
@@ -562,13 +794,13 @@ function renderRight() {
         <thead><tr><th>Escenario</th><th>Precio</th><th>Precio mín.</th><th>Margen</th><th>%</th><th>Viabilidad</th></tr></thead>
         <tbody>
           <tr>
-            <td>Precio público</td><td>${bs(p.pub)}</td><td>${bs(c.precioMin)}</td>
+            <td>Precio público</td><td>${bsEx(p.pub)}</td><td>${bsEx(c.precioMin)}</td>
             <td style="color:var(--${margenOk?"green":"red"});font-weight:600">${bs(c.margen)}</td>
             <td>${margenPct.toFixed(1)}%</td>
             <td><span class="tag ${tagCls(margenPct)}">${margenPct>=40?"Buena":margenPct>=20?"Ajustada":!margenOk?"⚠ Negativo":"Difícil"}</span></td>
           </tr>
           <tr>
-            <td>Precio socio / red</td><td>${bs(precioSocio)}</td><td>${bs(c.precioMin)}</td>
+            <td>Precio socio / red</td><td>${bsEx(precioSocio)}</td><td>${bsEx(c.precioMin)}</td>
             <td style="color:var(--amber);font-weight:600">${bs(margenSocio)}</td>
             <td>${pct(margenSocio,precioSocio)}%</td>
             <td><span class="tag ta">Entrada red</span></td>
@@ -576,7 +808,7 @@ function renderRight() {
         </tbody>
       </table>
     </div>
-    <div class="notice blue" style="margin-bottom:20px">Los bonos se calculan sobre el margen del precio <strong>público</strong> (${bs(c.margen)}). El precio socio (${bs(precioSocio)}) es el punto de entrada al negocio.</div>
+    <div class="notice blue" style="margin-bottom:20px">Los bonos se calculan sobre el margen del precio <strong>público</strong> (${bs(c.margen)}). El precio socio (${bsEx(precioSocio)}) es el punto de entrada al negocio.</div>
 
     <div class="sec-label">Simulación de niveles — precio público</div>
     <p style="font-size:11px;color:var(--text3);margin-bottom:9px;font-family:var(--font-mono)">Margen disponible: ${bs(c.margen)}</p>
@@ -618,18 +850,18 @@ function renderRight() {
           <tr style="background:var(--bg3)"><td style="font-weight:600;color:var(--text)">Costo fabricación</td><td style="font-weight:600">${bs(c.costoFab)}</td><td>${pct(c.costoFab,c.precioMin)}%</td></tr>
           <tr style="background:#fff8f0"><td style="color:var(--amber)">Retorno empresa (${p.retPct}%)</td><td style="color:var(--amber);font-weight:600">+ ${bs(c.retorno)}</td><td>${pct(c.retorno,c.precioMin)}%</td></tr>
           <tr style="background:#fffbeb"><td style="color:var(--amber)">Margen error (${p.errPct}%)</td><td style="color:var(--amber);font-weight:600">+ ${bs(c.error)}</td><td>${pct(c.error,c.precioMin)}%</td></tr>
-          <tr style="background:var(--purple-dim)"><td style="color:var(--purple);font-weight:600">Precio socio</td><td style="color:var(--purple);font-weight:600">${bs(c.precioMin)}</td><td>100%</td></tr>
+          <tr style="background:var(--purple-dim)"><td style="color:var(--purple);font-weight:600">Precio socio</td><td style="color:var(--purple);font-weight:600">${bsEx(c.precioMin)}</td><td>100%</td></tr>
         </tbody>
       </table>
     </div>
 
     <div class="sec-label">Conclusión</div>
     <div class="notice ${viable?"green":"amber"}">
-      <strong>${p.nombre}</strong> — Precio socio: ${bs(c.precioMin)} · precio público: ${bs(p.pub)} · margen: ${bs(c.margen)} (${margenPct.toFixed(1)}%)<br><br>
+      <strong>${p.nombre}</strong> — Precio socio: ${bsEx(c.precioMin)} · precio público: ${bsEx(p.pub)} · margen: ${bs(c.margen)} (${margenPct.toFixed(1)}%)<br><br>
       ${!margenOk
-        ? `⚠ Opera con pérdida. Ajusta el precio público por encima de ${bs(c.precioMin)}.`
+        ? `⚠ Opera con pérdida. Ajusta el precio público por encima de ${bsEx(c.precioMin)}.`
         : viable
-          ? `✓ Margen suficiente para bonos en 3 niveles. Destinar máx. 30–35% del margen a bonos: Bs ${(c.margen*0.30).toFixed(2)} – Bs ${(c.margen*0.35).toFixed(2)}.`
+          ? `✓ Margen suficiente para bonos en 3 niveles. Destinar máx. 30–35% del margen a bonos: Bs ${ri(c.margen*0.30)} – Bs ${ri(c.margen*0.35)}.`
           : `⚠ Margen ajustado. Bonos posibles pero limitados. Considera subir el precio público.`}
     </div>
   `;
@@ -643,6 +875,7 @@ function renderRight() {
       <div class="sec-tabs">
         <div class="sec-tab ${activeTab==="analisis"?"active":""}" data-tab="analisis" onclick="switchTab('analisis')">Análisis de costos</div>
         <div class="sec-tab ${activeTab==="planes"?"active":""}" data-tab="planes" onclick="switchTab('planes')">Planes de compensación</div>
+        <div class="sec-tab ${activeTab==="bonos"?"active":""}" data-tab="bonos" onclick="switchTab('bonos')">Bonos</div>
       </div>
       <div class="tab-content ${activeTab==="analisis"?"active":""}" data-tab="analisis">
         ${analisisHTML}
@@ -650,8 +883,11 @@ function renderRight() {
       <div class="tab-content ${activeTab==="planes"?"active":""}" data-tab="planes">
         ${renderPlanes(p, c)}
       </div>
+      <div class="tab-content ${activeTab==="bonos"?"active":""}" data-tab="bonos">
+        ${renderBonos(p, c)}
+      </div>
     </div>`;
 }
 
-// ─── INIT ─────────────────────────────────────────────────────────────────────
+// INIT
 renderTabs(); renderFields(); renderRight();
